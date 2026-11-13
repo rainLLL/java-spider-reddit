@@ -4,8 +4,18 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpHeaders;
+import javax.net.ssl.SSLSession;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.time.Duration;
+import java.nio.file.Path;
+
+import com.rain.reddit.config.CrawlerProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RedditHttpClientTest {
 
@@ -53,5 +63,35 @@ class RedditHttpClientTest {
 
         assertThat(logged).hasSize(2000).contains("[REDACTED]").doesNotContain("secret");
         assertThat(RedditHttpClient.responseBodyForLog("short")).isEqualTo("short");
+    }
+
+    @Test
+    void retriesClientErrorsThreeTimesThenStops() throws Exception {
+        URI uri = URI.create("https://www.reddit.com/r/test/");
+        AtomicInteger calls = new AtomicInteger();
+        HttpResponse<String> forbidden = response(uri, 403);
+        CrawlerProperties properties = new CrawlerProperties("test", 1, Duration.ZERO,
+                Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
+
+        assertThatThrownBy(() -> new RedditHttpClient(properties, (request, handler) -> {
+            calls.incrementAndGet();
+            return forbidden;
+        }).get(uri))
+                .isInstanceOf(RedditClientErrorException.class)
+                .hasMessageContaining("HTTP 403");
+        assertThat(calls.get()).isEqualTo(4);
+    }
+
+    private HttpResponse<String> response(URI uri, int status) {
+        return new HttpResponse<>() {
+            public int statusCode() { return status; }
+            public HttpRequest request() { return null; }
+            public Optional<HttpResponse<String>> previousResponse() { return Optional.empty(); }
+            public HttpHeaders headers() { return HttpHeaders.of(java.util.Map.of(), (key, value) -> true); }
+            public String body() { return "blocked"; }
+            public Optional<SSLSession> sslSession() { return Optional.empty(); }
+            public URI uri() { return uri; }
+            public java.net.http.HttpClient.Version version() { return java.net.http.HttpClient.Version.HTTP_1_1; }
+        };
     }
 }

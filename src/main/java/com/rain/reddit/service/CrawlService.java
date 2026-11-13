@@ -1,6 +1,7 @@
 package com.rain.reddit.service;
 
 import com.rain.reddit.client.RedditHttpClient;
+import com.rain.reddit.client.RedditClientErrorException;
 import com.rain.reddit.config.CrawlerProperties;
 import com.rain.reddit.domain.Challenge;
 import com.rain.reddit.domain.ListingPage;
@@ -17,7 +18,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -25,6 +29,7 @@ public class CrawlService {
 
     private static final Logger log = LoggerFactory.getLogger(CrawlService.class);
     private static final URI BASE_URI = URI.create("https://www.reddit.com");
+    private static final int MAX_PROFILE_REQUESTS = 100;
     private final CrawlerProperties properties;
     private final RedditHttpClient httpClient;
     private final RedditPageParser parser;
@@ -69,6 +74,7 @@ public class CrawlService {
             currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGet(currentUri);
         }
 
+        log.info("Starting comments pages: {} URLs to visit", commentUrls.size());
         for (URI commentUri : commentUrls) {
             String html = safeGet(addExternalReferrer(commentUri));
             if (html != null) {
@@ -76,13 +82,33 @@ public class CrawlService {
             }
         }
 
-        List<ProfileRecord> profiles = new ArrayList<>();
+        Map<String, URI> pendingProfiles = new LinkedHashMap<>();
         for (URI profileUri : profileUrls) {
             String userId = parser.userIdFromUri(profileUri).orElse(null);
-            if (userId == null || cache.contains(userId)) {
-                continue;
+            if (userId != null && !cache.contains(userId)) {
+                pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
+                if (pendingProfiles.size() == MAX_PROFILE_REQUESTS) {
+                    break;
+                }
             }
-            String html = safeGet(profileUri);
+        }
+        log.info("Starting user profiles: {} URLs to visit (limit {})", pendingProfiles.size(), MAX_PROFILE_REQUESTS);
+
+        List<ProfileRecord> profiles = new ArrayList<>();
+        for (URI profileUri : pendingProfiles.values()) {
+            String html;
+            try {
+                html = safeGet(profileUri);
+            } catch (RedditClientErrorException exception) {
+                if (!profiles.isEmpty()) {
+                    try {
+                        exportAndMarkVisited(profiles);
+                    } catch (IOException exportException) {
+                        exception.addSuppressed(exportException);
+                    }
+                }
+                throw exception;
+            }
             if (html == null) {
                 continue;
             }
@@ -95,19 +121,30 @@ public class CrawlService {
                 } else {
                     log.info("Skipped profile u/{} because description and social links are empty", profile.userId());
                 }
-                cache.markVisited(profile.userId());
+                if (!profile.hasExportableContent()) {
+                    cache.markVisited(profile.userId());
+                }
             } catch (RuntimeException exception) {
                 log.warn("Could not parse profile {}: {}", profileUri, exception.getMessage());
             }
         }
 
-        Path file = csvExportService.export(profiles);
-        log.info("Finished: {} new profiles written to {}", profiles.size(), file);
+        exportAndMarkVisited(profiles);
     }
 
-    private String safeGet(URI uri) throws InterruptedException {
+    private void exportAndMarkVisited(List<ProfileRecord> profiles) throws IOException {
+        Path file = csvExportService.export(profiles);
+        log.info("Finished: {} new profiles written to {}", profiles.size(), file);
+        for (ProfileRecord profile : profiles) {
+            cache.markVisited(profile.userId());
+        }
+    }
+
+    private String safeGet(URI uri) throws InterruptedException, RedditClientErrorException {
         try {
             return httpClient.get(uri);
+        } catch (RedditClientErrorException exception) {
+            throw exception;
         } catch (IOException | RuntimeException exception) {
             log.warn("Skipping {}: {}", uri, exception.getMessage());
             return null;

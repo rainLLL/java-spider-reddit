@@ -2,18 +2,14 @@
 <configuration>
     <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
     <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+    <timestamp key="RUN_TIMESTAMP" datePattern="yyyy-MM-dd-HHmmss-SSS"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder><pattern>${PATTERN}</pattern></encoder>
     </appender>
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_DIR}/java-spider-reddit.log</file>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${LOG_DIR}/java-spider-reddit.${RUN_TIMESTAMP}.log</file>
         <encoder><pattern>${PATTERN}</pattern></encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/java-spider-reddit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
-            <maxHistory>5</maxHistory>
-            <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
     </appender>
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
