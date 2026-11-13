@@ -8,8 +8,7 @@ spring:
 reddit:
   crawler:
     community: ${REDDIT_COMMUNITY:wallstreetbets}
-    max-listing-pages: ${REDDIT_MAX_LISTING_PAGES:10}
-    max-comment-pages: ${REDDIT_MAX_COMMENT_PAGES:20}
+    max-listing-pages: ${REDDIT_MAX_LISTING_PAGES:1}
     request-delay: ${REDDIT_REQUEST_DELAY:2s}
     connect-timeout: 15s
     read-timeout: 30s

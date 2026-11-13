@@ -53,8 +53,19 @@ public class RedditPageParser {
         Document document = Jsoup.parse(html, pageUri.toString());
         Set<URI> profiles = extractProfileUrls(document);
         Set<URI> comments = new LinkedHashSet<>();
-        document.select("article a[data-action-bar-action=comments][href]")
-                .forEach(link -> toRedditUri(link.absUrl("href")).ifPresent(comments::add));
+        for (Element article : document.select("article[id]")) {
+            for (Element post : article.select("shreddit-post[permalink][comment-count]")) {
+                try {
+                    if (Long.parseLong(post.attr("comment-count")) > 0) {
+                        toRedditUri(post.absUrl("permalink"))
+                                .filter(uri -> uri.getPath().matches("(?i)^/r/[^/]+/comments/[^/]+(?:/.*)?$"))
+                                .ifPresent(comments::add);
+                    }
+                } catch (NumberFormatException ignored) {
+                    // An invalid count does not establish that the post has comments.
+                }
+            }
+        }
 
         URI next = null;
         Element nextElement = document.selectFirst("faceplate-partial[slot=load-after][src]");

@@ -29,15 +29,15 @@ public class CrawlService {
     private final RedditHttpClient httpClient;
     private final RedditPageParser parser;
     private final VisitedUserCache cache;
-    private final ExcelExportService excelExportService;
+    private final CsvExportService csvExportService;
 
     public CrawlService(CrawlerProperties properties, RedditHttpClient httpClient, RedditPageParser parser,
-                        VisitedUserCache cache, ExcelExportService excelExportService) {
+                        VisitedUserCache cache, CsvExportService csvExportService) {
         this.properties = properties;
         this.httpClient = httpClient;
         this.parser = parser;
         this.cache = cache;
-        this.excelExportService = excelExportService;
+        this.csvExportService = csvExportService;
     }
 
     public void crawl() throws IOException, InterruptedException {
@@ -69,11 +69,7 @@ public class CrawlService {
             currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGet(currentUri);
         }
 
-        int commentCount = 0;
         for (URI commentUri : commentUrls) {
-            if (commentCount++ >= properties.maxCommentPages()) {
-                break;
-            }
             String html = safeGet(addExternalReferrer(commentUri));
             if (html != null) {
                 profileUrls.addAll(parser.parseCommentProfiles(html, commentUri));
@@ -92,15 +88,20 @@ public class CrawlService {
             }
             try {
                 ProfileRecord profile = parser.parseProfile(html, profileUri);
-                profiles.add(profile);
+                if (profile.hasExportableContent()) {
+                    profiles.add(profile);
+                    log.info("Collected profile u/{} with {} social links", profile.userId(),
+                            profile.socialLinks().size());
+                } else {
+                    log.info("Skipped profile u/{} because description and social links are empty", profile.userId());
+                }
                 cache.markVisited(profile.userId());
-                log.info("Collected profile u/{} with {} social links", profile.userId(), profile.socialLinks().size());
             } catch (RuntimeException exception) {
                 log.warn("Could not parse profile {}: {}", profileUri, exception.getMessage());
             }
         }
 
-        Path file = excelExportService.export(profiles);
+        Path file = csvExportService.export(profiles);
         log.info("Finished: {} new profiles written to {}", profiles.size(), file);
     }
 
