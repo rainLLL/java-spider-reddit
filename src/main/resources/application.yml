@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: java-spider-reddit
+  main:
+    web-application-type: none
+    banner-mode: off
+
+reddit:
+  crawler:
+    community: ${REDDIT_COMMUNITY:wallstreetbets}
+    max-listing-pages: ${REDDIT_MAX_LISTING_PAGES:10}
+    max-comment-pages: ${REDDIT_MAX_COMMENT_PAGES:20}
+    request-delay: ${REDDIT_REQUEST_DELAY:2s}
+    connect-timeout: 15s
+    read-timeout: 30s
+    user-agent: ${REDDIT_USER_AGENT:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
+    output-directory: ${REDDIT_OUTPUT_DIR:output}
+    cache-file: ${REDDIT_CACHE_FILE:data/visited-users.txt}
+
+logging:
+  level:
+    root: INFO
+    com.rain.reddit: INFO
