@@ -62,13 +62,58 @@ class RedditPageParserTest {
     @Test
     void parsesProfileDescriptionAndMultipleSocialLinks() {
         String html = """
-                <p data-testid='profile-description'>Engineer &amp; trader</p>
-                <faceplate-tracker noun='social_link'><a href='https://example.com/one'>One</a></faceplate-tracker>
-                <faceplate-tracker noun='social_link'><a href='https://example.org/two'>Two</a></faceplate-tracker>
+                <p data-testid='profile-description'>Engineer &amp; trader. Find me on Instagram.</p>
+                <faceplate-tracker noun='social_link'><a href='https://www.instagram.com/alice/'>Instagram</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://discord.gg/example'>Discord</a></faceplate-tracker>
                 """;
         ProfileRecord profile = parser.parseProfile(html, URI.create("https://www.reddit.com/user/Alice/"));
         assertThat(profile.userId()).isEqualTo("Alice");
-        assertThat(profile.description()).isEqualTo("Engineer & trader");
-        assertThat(profile.socialLinks()).containsExactly("https://example.com/one", "https://example.org/two");
+        assertThat(profile.description()).isEqualTo("Engineer & trader. Find me on Instagram.");
+        assertThat(profile.socialLinks()).containsExactly("https://www.instagram.com/alice/", "https://discord.gg/example");
+    }
+
+    @Test
+    void keepsWholeDescriptionForEachSocialKeywordIgnoringCase() {
+        for (String keyword : new String[] {"IG", "insta", "Instagram", "fb", "Facebook", "discord"}) {
+            String description = "Hello, find me on " + keyword.toUpperCase() + "! More details here.";
+            ProfileRecord profile = parser.parseProfile(
+                    "<p data-testid='profile-description'>" + description + "</p>",
+                    URI.create("https://www.reddit.com/user/Alice/"));
+            assertThat(profile.description()).isEqualTo(description);
+        }
+    }
+
+    @Test
+    void clearsUnmatchedDescriptionButPreservesSocialLinks() {
+        String html = """
+                <p data-testid='profile-description'>A big fabric enthusiast</p>
+                <faceplate-tracker noun='social_link'><a href='https://x.com/alice'>X</a></faceplate-tracker>
+                """;
+        ProfileRecord profile = parser.parseProfile(html, URI.create("https://www.reddit.com/user/Alice/"));
+
+        assertThat(profile.description()).isEmpty();
+        assertThat(profile.socialLinks()).containsExactly("https://x.com/alice");
+        assertThat(profile.hasExportableContent()).isTrue();
+    }
+
+    @Test
+    void keepsOnlySupportedPlatformDomains() {
+        String html = """
+                <faceplate-tracker noun='social_link'><a href='https://www.facebook.com/alice'>Facebook</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://instagram.com/alice'>Instagram</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://discord.com/invite/example'>Discord</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://x.com/alice'>X</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://twitter.com/alice'>Twitter legacy</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://example.com/profile'>Other</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://facebook.com.evil.test/alice'>Lookalike</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='https://evil.test/facebook.com'>Path only</a></faceplate-tracker>
+                <faceplate-tracker noun='social_link'><a href='javascript:alert(1)'>Script</a></faceplate-tracker>
+                """;
+
+        ProfileRecord profile = parser.parseProfile(html, URI.create("https://www.reddit.com/user/Alice/"));
+
+        assertThat(profile.socialLinks()).containsExactly(
+                "https://www.facebook.com/alice", "https://instagram.com/alice",
+                "https://discord.com/invite/example", "https://x.com/alice", "https://twitter.com/alice");
     }
 }

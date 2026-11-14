@@ -70,7 +70,7 @@ class RedditHttpClientTest {
         URI uri = URI.create("https://www.reddit.com/r/test/");
         AtomicInteger calls = new AtomicInteger();
         HttpResponse<String> forbidden = response(uri, 403);
-        CrawlerProperties properties = new CrawlerProperties("test", 1, Duration.ZERO,
+        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
 
         assertThatThrownBy(() -> new RedditHttpClient(properties, (request, handler) -> {

@@ -9,6 +9,7 @@ reddit:
   crawler:
     community: ${REDDIT_COMMUNITY:wallstreetbets}
     max-listing-pages: ${REDDIT_MAX_LISTING_PAGES:1}
+    max-profile-requests: ${REDDIT_MAX_PROFILE_REQUESTS:100}
     request-delay: ${REDDIT_REQUEST_DELAY:2s}
     connect-timeout: 15s
     read-timeout: 30s

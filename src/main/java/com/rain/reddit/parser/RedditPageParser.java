@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -26,6 +27,14 @@ public class RedditPageParser {
     private static final URI BASE_URI = URI.create("https://www.reddit.com");
     private static final Pattern CHALLENGE_VALUE = Pattern.compile("(?:async\\s*)?e\\s*=>\\s*e\\s*\\+\\s*e\\s*\\)\\s*\\(\\s*[\\\"']([^\\\"']+)[\\\"']");
     private static final Pattern USER_PATH = Pattern.compile("^/user/([^/]+)/?.*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SOCIAL_DESCRIPTION_WORD = Pattern.compile(
+            "(?<![\\p{L}\\p{N}_])(?:IG|insta|Instagram|fb|Facebook|discord)(?![\\p{L}\\p{N}_])",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Set<String> SOCIAL_PLATFORM_DOMAINS = Set.of(
+            "facebook.com", "fb.com", "fb.me",
+            "instagram.com", "instagr.am",
+            "discord.com", "discord.gg",
+            "x.com", "twitter.com");
 
     public Optional<Challenge> parseChallenge(String html) {
         Document document = Jsoup.parse(html);
@@ -85,15 +94,34 @@ public class RedditPageParser {
                 .orElseThrow(() -> new IllegalArgumentException("Invalid Reddit profile URL: " + profileUri));
         Element descriptionElement = document.selectFirst("[data-testid=profile-description]");
         String description = descriptionElement == null ? "" : descriptionElement.text().trim();
+        if (!SOCIAL_DESCRIPTION_WORD.matcher(description).find()) {
+            description = "";
+        }
 
         List<String> links = new ArrayList<>();
         document.select("faceplate-tracker[noun=social_link] a[href]").forEach(anchor -> {
             String link = anchor.absUrl("href");
-            if (!link.isBlank() && !links.contains(link)) {
+            if (isSupportedSocialLink(link) && !links.contains(link)) {
                 links.add(link);
             }
         });
         return new ProfileRecord(userId, description, List.copyOf(links));
+    }
+
+    private boolean isSupportedSocialLink(String link) {
+        try {
+            URI uri = URI.create(link);
+            String host = uri.getHost();
+            if (host == null || uri.getUserInfo() != null
+                    || !("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))) {
+                return false;
+            }
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            return SOCIAL_PLATFORM_DOMAINS.stream()
+                    .anyMatch(domain -> normalizedHost.equals(domain) || normalizedHost.endsWith("." + domain));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     public Optional<String> userIdFromUri(URI uri) {

@@ -23,12 +23,12 @@ class CrawlServiceTest {
 
     @Test
     void exportsCollectedProfilesBeforeFatalClientError() throws Exception {
-        CrawlerProperties properties = properties();
+        CrawlerProperties properties = properties(100);
         FakeClient client = new FakeClient(properties);
         URI first = URI.create("https://www.reddit.com/user/Alice/");
         URI second = URI.create("https://www.reddit.com/user/Bob/");
         client.responder = uri -> {
-            if (uri.equals(first)) return "<p data-testid='profile-description'>Engineer</p>";
+            if (uri.equals(first)) return "<p data-testid='profile-description'>Engineer on Instagram</p>";
             if (uri.equals(second)) throw new RedditClientErrorException(403, uri.toString());
             return "<article id='post'><a href='" + first + "'>Alice</a><a href='" + second + "'>Bob</a></article>";
         };
@@ -38,14 +38,14 @@ class CrawlServiceTest {
 
         assertThatThrownBy(service::crawl).isInstanceOf(RedditClientErrorException.class);
         Path output = Files.list(properties.outputDirectory()).findFirst().orElseThrow();
-        assertThat(Files.readString(output)).contains("\"Alice\",\"Engineer\"").doesNotContain("Bob");
+        assertThat(Files.readString(output)).contains("\"Alice\",\"Engineer on Instagram\"").doesNotContain("Bob");
         assertThat(cache.contains("Alice")).isTrue();
         assertThat(cache.contains("Bob")).isFalse();
     }
 
     @Test
-    void visitsAtMostOneHundredUncachedProfiles() throws Exception {
-        CrawlerProperties properties = properties();
+    void respectsConfiguredProfileRequestLimit() throws Exception {
+        CrawlerProperties properties = properties(2);
         FakeClient client = new FakeClient(properties);
         StringBuilder listing = new StringBuilder("<article id='post'>");
         for (int i = 0; i < 101; i++) {
@@ -54,20 +54,20 @@ class CrawlServiceTest {
         listing.append("</article>");
         client.responder = uri -> {
             return uri.getPath().startsWith("/user/")
-                    ? "<p data-testid='profile-description'>Hello</p>" : listing.toString();
+                    ? "<p data-testid='profile-description'>Hello on discord</p>" : listing.toString();
         };
         CrawlService service = new CrawlService(properties, client, new RedditPageParser(),
                 new VisitedUserCache(properties), new CsvExportService(properties));
 
         service.crawl();
 
-        assertThat(client.calls).isEqualTo(101); // one listing and 100 profiles
+        assertThat(client.calls).isEqualTo(3); // one listing and two profiles
         Path output = Files.list(properties.outputDirectory()).findFirst().orElseThrow();
-        assertThat(Files.readString(output)).contains("User99").doesNotContain("User100");
+        assertThat(Files.readString(output)).contains("User1").doesNotContain("User2");
     }
 
-    private CrawlerProperties properties() {
-        return new CrawlerProperties("test", 1, Duration.ZERO, Duration.ofSeconds(1),
+    private CrawlerProperties properties(int maxProfileRequests) {
+        return new CrawlerProperties("test", 1, maxProfileRequests, Duration.ZERO, Duration.ofSeconds(1),
                 Duration.ofSeconds(1), "test-agent", tempDirectory.resolve("output"),
                 tempDirectory.resolve("visited-users.txt"));
     }

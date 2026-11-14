@@ -21,7 +21,7 @@ class CsvExportServiceTest {
     @Test
     void writesUtf8CsvWithQuotedMultilineFieldsAndSkipsEmptyProfiles() throws Exception {
         CrawlerProperties properties = new CrawlerProperties(
-                "test", 1, Duration.ZERO, Duration.ofSeconds(1), Duration.ofSeconds(1),
+                "test", 1, 100, Duration.ZERO, Duration.ofSeconds(1), Duration.ofSeconds(1),
                 "test-agent", tempDirectory.resolve("output"), tempDirectory.resolve("visited-users.txt"));
         Path output = new CsvExportService(properties).export(List.of(
                 new ProfileRecord("empty", "   ", List.of()),

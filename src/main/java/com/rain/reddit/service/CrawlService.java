@@ -29,7 +29,6 @@ public class CrawlService {
 
     private static final Logger log = LoggerFactory.getLogger(CrawlService.class);
     private static final URI BASE_URI = URI.create("https://www.reddit.com");
-    private static final int MAX_PROFILE_REQUESTS = 100;
     private final CrawlerProperties properties;
     private final RedditHttpClient httpClient;
     private final RedditPageParser parser;
@@ -87,12 +86,13 @@ public class CrawlService {
             String userId = parser.userIdFromUri(profileUri).orElse(null);
             if (userId != null && !cache.contains(userId)) {
                 pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
-                if (pendingProfiles.size() == MAX_PROFILE_REQUESTS) {
+                if (pendingProfiles.size() == properties.maxProfileRequests()) {
                     break;
                 }
             }
         }
-        log.info("Starting user profiles: {} URLs to visit (limit {})", pendingProfiles.size(), MAX_PROFILE_REQUESTS);
+        log.info("Starting user profiles: {} URLs to visit (limit {})",
+                pendingProfiles.size(), properties.maxProfileRequests());
 
         List<ProfileRecord> profiles = new ArrayList<>();
         for (URI profileUri : pendingProfiles.values()) {
