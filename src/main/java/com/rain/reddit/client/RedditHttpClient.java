@@ -66,15 +66,24 @@ public class RedditHttpClient {
     }
 
     public String get(URI uri) throws IOException, InterruptedException {
+        return get(uri, false);
+    }
+
+    public String getListing(URI uri) throws IOException, InterruptedException {
+        return get(uri, true);
+    }
+
+    private String get(URI uri, boolean timeSortedListing) throws IOException, InterruptedException {
         verifyRedditUri(uri);
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(properties.readTimeout())
                 .header("User-Agent", properties.userAgent())
                 .header("Accept", "text/html,application/xhtml+xml")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .GET()
-                .build();
-        return send(request);
+                .header("Accept-Language", "en-US,en;q=0.9");
+        if (timeSortedListing) {
+            builder.header("Content-Type", "application/x-www-form-urlencoded");
+        }
+        return send(builder.GET().build());
     }
 
     public String postComments(URI uri, String cursor) throws IOException, InterruptedException {

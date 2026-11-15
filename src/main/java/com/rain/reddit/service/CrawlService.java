@@ -6,6 +6,7 @@ import com.rain.reddit.config.CrawlerProperties;
 import com.rain.reddit.domain.Challenge;
 import com.rain.reddit.domain.CommentContinuation;
 import com.rain.reddit.domain.ListingPage;
+import com.rain.reddit.domain.ListingPost;
 import com.rain.reddit.domain.ProfileRecord;
 import com.rain.reddit.parser.RedditPageParser;
 import org.slf4j.Logger;
@@ -51,14 +52,15 @@ public class CrawlService {
         Challenge challenge = parser.parseChallenge(firstHtml).orElse(null);
         if (challenge != null) {
             log.info("Reddit JavaScript challenge detected; submitting documented solution");
-            firstHtml = httpClient.get(withChallengeQuery(communityUri, challenge));
+            httpClient.get(withChallengeQuery(communityUri, challenge));
         }
 
-        Set<URI> profileUrls = new LinkedHashSet<>();
-        Set<URI> commentUrls = new LinkedHashSet<>();
+        Map<String, URI> pendingProfiles = new LinkedHashMap<>();
+        Set<URI> seenCommentUrls = new LinkedHashSet<>();
         Set<URI> seenListingUrls = new LinkedHashSet<>();
-        URI currentUri = communityUri;
-        String currentHtml = firstHtml;
+        URI currentUri = BASE_URI.resolve("/r/" + properties.community()
+                + "/new/?screen_view_count=1&ext-referrer=DIRECT");
+        String currentHtml = httpClient.getListing(currentUri);
 
         for (int page = 1; page <= properties.maxListingPages() && currentHtml != null; page++) {
             if (!seenListingUrls.add(currentUri)) {
@@ -66,38 +68,41 @@ public class CrawlService {
                 break;
             }
             ListingPage listing = parser.parseListing(currentHtml, currentUri);
-            profileUrls.addAll(listing.profileUrls());
-            commentUrls.addAll(listing.commentUrls());
-            log.info("Listing page {}: {} profiles, {} comment pages", page,
-                    listing.profileUrls().size(), listing.commentUrls().size());
-            currentUri = listing.nextPageUrl();
-            currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGet(currentUri);
-        }
-
-        Map<String, URI> pendingProfiles = new LinkedHashMap<>();
-        collectPendingProfiles(pendingProfiles, profileUrls);
-
-        log.info("Starting comments pages: {} URLs discovered (stops after {} user profiles)",
-                commentUrls.size(), properties.maxProfileRequests());
-        for (URI commentUri : commentUrls) {
+            long commentPages = listing.posts().stream().filter(post -> post.commentUrl() != null).count();
+            log.info("Listing page {}: {} posts, {} comment pages discovered", page,
+                    listing.posts().size(), commentPages);
+            for (ListingPost post : listing.posts()) {
+                if (post.authorUrl() != null) {
+                    collectPendingProfile(pendingProfiles, post.authorUrl());
+                }
+                URI commentUri = post.commentUrl();
+                if (commentUri != null && seenCommentUrls.add(commentUri)) {
+                    String html = safeGet(addExternalReferrer(commentUri));
+                    if (html != null) {
+                        collectPendingProfiles(pendingProfiles, parser.parseCommentProfiles(html, commentUri));
+                        Set<CommentContinuation> seenContinuations = new LinkedHashSet<>();
+                        CommentContinuation continuation = parser.parseTopLevelComments(html, commentUri).orElse(null);
+                        while (continuation != null && pendingProfiles.size() < properties.maxProfileRequests()
+                                && seenContinuations.add(continuation)) {
+                            String moreHtml = safePost(continuation);
+                            if (moreHtml == null) {
+                                break;
+                            }
+                            collectPendingProfiles(pendingProfiles,
+                                    parser.parseCommentProfiles(moreHtml, continuation.uri()));
+                            continuation = parser.parseNextComments(moreHtml, continuation.uri()).orElse(null);
+                        }
+                    }
+                }
+                if (pendingProfiles.size() >= properties.maxProfileRequests()) {
+                    break;
+                }
+            }
             if (pendingProfiles.size() >= properties.maxProfileRequests()) {
                 break;
             }
-            String html = safeGet(addExternalReferrer(commentUri));
-            if (html != null) {
-                collectPendingProfiles(pendingProfiles, parser.parseCommentProfiles(html, commentUri));
-                Set<CommentContinuation> seenContinuations = new LinkedHashSet<>();
-                CommentContinuation continuation = parser.parseTopLevelComments(html, commentUri).orElse(null);
-                while (continuation != null && pendingProfiles.size() < properties.maxProfileRequests()
-                        && seenContinuations.add(continuation)) {
-                    String moreHtml = safePost(continuation);
-                    if (moreHtml == null) {
-                        break;
-                    }
-                    collectPendingProfiles(pendingProfiles, parser.parseCommentProfiles(moreHtml, continuation.uri()));
-                    continuation = parser.parseNextComments(moreHtml, continuation.uri()).orElse(null);
-                }
-            }
+            currentUri = listing.nextPageUrl();
+            currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGetListing(currentUri);
         }
 
         log.info("Starting user profiles: {} URLs to visit (limit {})",
@@ -143,13 +148,17 @@ public class CrawlService {
 
     private void collectPendingProfiles(Map<String, URI> pendingProfiles, Set<URI> profileUrls) {
         for (URI profileUri : profileUrls) {
-            String userId = parser.userIdFromUri(profileUri).orElse(null);
-            if (userId != null && !cache.contains(userId)) {
-                pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
-                if (pendingProfiles.size() >= properties.maxProfileRequests()) {
-                    break;
-                }
+            collectPendingProfile(pendingProfiles, profileUri);
+            if (pendingProfiles.size() >= properties.maxProfileRequests()) {
+                break;
             }
+        }
+    }
+
+    private void collectPendingProfile(Map<String, URI> pendingProfiles, URI profileUri) {
+        String userId = parser.userIdFromUri(profileUri).orElse(null);
+        if (userId != null && !cache.contains(userId)) {
+            pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
         }
     }
 
@@ -164,6 +173,17 @@ public class CrawlService {
     private String safeGet(URI uri) throws InterruptedException, RedditClientErrorException {
         try {
             return httpClient.get(uri);
+        } catch (RedditClientErrorException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
+            log.warn("Skipping {}: {}", uri, exception.getMessage());
+            return null;
+        }
+    }
+
+    private String safeGetListing(URI uri) throws InterruptedException, RedditClientErrorException {
+        try {
+            return httpClient.getListing(uri);
         } catch (RedditClientErrorException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {

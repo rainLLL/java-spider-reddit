@@ -27,17 +27,24 @@ class RedditPageParserTest {
     }
 
     @Test
-    void parsesListingProfilesCommentsAndNextPage() {
+    void parsesTimeSortedPostsInArticleOrderAndNextPage() {
         String html = """
                 <article id='post-123'>
                   <a aria-label='Author: u/Alice' href='https://www.reddit.com/user/Alice/'>Alice</a>
                   <shreddit-post permalink='/r/test/comments/123/title/' comment-count='12'></shreddit-post>
                 </article>
-                <faceplate-partial slot='load-after' src='/svc/shreddit/community-more-posts/best/?after=abc&amp;t=DAY'></faceplate-partial>
+                <article id='post-456'>
+                  <div><a aria-label='Author: u/Bob' href='/user/Bob/'>Bob</a></div>
+                  <shreddit-post permalink='/r/test/comments/456/title/' comment-count='2'></shreddit-post>
+                </article>
+                <faceplate-partial slot='load-after' src='/svc/shreddit/community-more-posts/new/?after=abc&amp;t=DAY'></faceplate-partial>
                 """;
-        ListingPage page = parser.parseListing(html, URI.create("https://www.reddit.com/r/test/"));
-        assertThat(page.profileUrls()).containsExactly(URI.create("https://www.reddit.com/user/Alice/"));
-        assertThat(page.commentUrls()).containsExactly(URI.create("https://www.reddit.com/r/test/comments/123/title/"));
+        ListingPage page = parser.parseListing(html, URI.create("https://www.reddit.com/r/test/new/"));
+        assertThat(page.posts()).hasSize(2);
+        assertThat(page.posts().get(0).authorUrl()).isEqualTo(URI.create("https://www.reddit.com/user/Alice/"));
+        assertThat(page.posts().get(0).commentUrl()).isEqualTo(URI.create("https://www.reddit.com/r/test/comments/123/title/"));
+        assertThat(page.posts().get(1).authorUrl()).isEqualTo(URI.create("https://www.reddit.com/user/Bob/"));
+        assertThat(page.posts().get(1).commentUrl()).isEqualTo(URI.create("https://www.reddit.com/r/test/comments/456/title/"));
         assertThat(page.nextPageUrl().toString()).contains("after=abc").contains("t=DAY");
     }
 
@@ -55,8 +62,29 @@ class RedditPageParserTest {
 
         ListingPage page = parser.parseListing(html, URI.create("https://www.reddit.com/r/test/"));
 
-        assertThat(page.commentUrls()).containsExactly(
+        assertThat(page.posts()).hasSize(4);
+        assertThat(page.posts().get(0).commentUrl()).isEqualTo(
                 URI.create("https://www.reddit.com/r/test/comments/456/another_post/"));
+        assertThat(page.posts().get(1).commentUrl()).isNull();
+        assertThat(page.posts().get(2).commentUrl()).isNull();
+        assertThat(page.posts().get(3).commentUrl()).isNull();
+    }
+
+    @Test
+    void ignoresOldBestPaginationAndUnrelatedAuthorLinks() {
+        String html = """
+                <a aria-label='Author: u/Outside' href='/user/Outside/'>outside</a>
+                <article id='post-1'>
+                  <a href='/user/Unrelated/'>unrelated</a>
+                  <shreddit-post permalink='/r/test/comments/1/title/' comment-count='0'></shreddit-post>
+                </article>
+                <faceplate-partial slot='load-after' src='/svc/shreddit/community-more-posts/best/?after=old'></faceplate-partial>
+                """;
+        ListingPage page = parser.parseListing(html, URI.create("https://www.reddit.com/r/test/new/"));
+        assertThat(page.posts()).hasSize(1);
+        assertThat(page.posts().get(0).authorUrl()).isNull();
+        assertThat(page.posts().get(0).commentUrl()).isNull();
+        assertThat(page.nextPageUrl()).isNull();
     }
 
     @Test

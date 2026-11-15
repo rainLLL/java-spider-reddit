@@ -90,6 +90,25 @@ class RedditHttpClientTest {
     }
 
     @Test
+    void addsFormContentTypeOnlyForTimeSortedListing() throws Exception {
+        URI uri = URI.create("https://www.reddit.com/r/test/new/?screen_view_count=1&ext-referrer=DIRECT");
+        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+                Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
+        var requests = new java.util.ArrayList<HttpRequest>();
+        RedditHttpClient client = new RedditHttpClient(properties, (request, handler) -> {
+            requests.add(request);
+            return response(uri, 200);
+        });
+
+        client.getListing(uri);
+        client.get(uri);
+
+        assertThat(requests.get(0).headers().firstValue("Content-Type"))
+                .contains("application/x-www-form-urlencoded");
+        assertThat(requests.get(1).headers().firstValue("Content-Type")).isEmpty();
+    }
+
+    @Test
     void postsEncodedCursorAndCookieCsrfWithoutLoggingTheirValues() throws Exception {
         URI uri = URI.create("https://www.reddit.com/svc/shreddit/more-comments/test/t3_123?top-level=1");
         CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);

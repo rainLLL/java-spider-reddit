@@ -3,13 +3,11 @@ package com.rain.reddit.parser;
 import com.rain.reddit.domain.Challenge;
 import com.rain.reddit.domain.CommentContinuation;
 import com.rain.reddit.domain.ListingPage;
+import com.rain.reddit.domain.ListingPost;
 import com.rain.reddit.domain.ProfileRecord;
-import com.rain.reddit.service.CrawlService;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -27,8 +25,6 @@ import java.util.stream.Collectors;
 
 @Component
 public class RedditPageParser {
-    private static final Logger log = LoggerFactory.getLogger(RedditPageParser.class);
-
     private static final URI BASE_URI = URI.create("https://www.reddit.com");
     private static final Pattern CHALLENGE_VALUE = Pattern.compile("(?:async\\s*)?e\\s*=>\\s*e\\s*\\+\\s*e\\s*\\)\\s*\\(\\s*[\\\"']([^\\\"']+)[\\\"']");
     private static final Pattern USER_PATH = Pattern.compile("^/user/([^/]+)/?.*$", Pattern.CASE_INSENSITIVE);
@@ -65,30 +61,39 @@ public class RedditPageParser {
 
     public ListingPage parseListing(String html, URI pageUri) {
         Document document = Jsoup.parse(html, pageUri.toString());
-        Set<URI> profiles = extractProfileUrls(document);
-        Set<URI> comments = new LinkedHashSet<>();
+        List<ListingPost> posts = new ArrayList<>();
         for (Element article : document.select("article[id]")) {
-            for (Element post : article.select("shreddit-post[permalink][comment-count]")) {
-                try {
-                    long commentCount = Long.parseLong(post.attr("comment-count"));
-                    log.info("comment-count:{}",commentCount);
-                    if (commentCount > 0) {
-                        toRedditUri(post.absUrl("permalink"))
-                                .filter(uri -> uri.getPath().matches("(?i)^/r/[^/]+/comments/[^/]+(?:/.*)?$"))
-                                .ifPresent(comments::add);
-                    }
-                } catch (NumberFormatException ignored) {
-                    // An invalid count does not establish that the post has comments.
-                }
+            Element post = article.selectFirst("shreddit-post");
+            if (post == null) {
+                continue;
             }
+            Element author = article.selectFirst("a[aria-label^='Author: u/'][href]");
+            if (author == null) {
+                author = article.selectFirst("a.flex.items-center.text-neutral-content[href]");
+            }
+            URI authorUrl = author == null ? null : toRedditUri(author.absUrl("href"))
+                    .filter(uri -> userIdFromUri(uri).isPresent()).orElse(null);
+            URI commentUrl = null;
+            try {
+                if (Long.parseLong(post.attr("comment-count")) > 0) {
+                    commentUrl = toRedditUri(post.absUrl("permalink"))
+                            .filter(uri -> uri.getPath().matches("(?i)^/r/[^/]+/comments/[^/]+(?:/.*)?$"))
+                            .orElse(null);
+                }
+            } catch (NumberFormatException ignored) {
+                // An invalid count does not establish that the post has comments.
+            }
+            posts.add(new ListingPost(authorUrl, commentUrl));
         }
 
         URI next = null;
         Element nextElement = document.selectFirst("faceplate-partial[slot=load-after][src]");
         if (nextElement != null) {
-            next = toRedditUri(nextElement.absUrl("src")).orElse(null);
+            next = toRedditUri(nextElement.absUrl("src"))
+                    .filter(uri -> uri.getPath().equalsIgnoreCase("/svc/shreddit/community-more-posts/new/"))
+                    .orElse(null);
         }
-        return new ListingPage(profiles, comments, next);
+        return new ListingPage(List.copyOf(posts), next);
     }
 
     public Set<URI> parseCommentProfiles(String html, URI pageUri) {
