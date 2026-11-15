@@ -60,6 +60,47 @@ class RedditPageParserTest {
     }
 
     @Test
+    void parsesDocumentedCommentContinuationChain() {
+        URI commentsUri = URI.create("https://www.reddit.com/r/test/comments/123/title/");
+        String initialHtml = """
+                <faceplate-partial id='top-level-more-comments-partial' method='post'
+                    src='/svc/shreddit/more-comments/test/t3_123?top-level=1&amp;comments-remaining=75'>
+                  <input type='hidden' name='cursor' value='first+cursor='>
+                </faceplate-partial>
+                """;
+        var first = parser.parseTopLevelComments(initialHtml, commentsUri).orElseThrow();
+        assertThat(first.uri()).isEqualTo(URI.create(
+                "https://www.reddit.com/svc/shreddit/more-comments/test/t3_123?top-level=1&comments-remaining=75"));
+        assertThat(first.cursor()).isEqualTo("first+cursor=");
+
+        String moreHtml = """
+                <faceplate-partial class='mx-md xs:mx-0 more-comments-partial' method='post'
+                    src='/svc/shreddit/more-comments/test/t3_123?top-level=1&amp;rootCommentOffset=8'>
+                  <input type='hidden' name='cursor' value='next/cursor='>
+                </faceplate-partial>
+                """;
+        var next = parser.parseNextComments(moreHtml, first.uri()).orElseThrow();
+        assertThat(next.uri().toString()).contains("rootCommentOffset=8");
+        assertThat(next.cursor()).isEqualTo("next/cursor=");
+    }
+
+    @Test
+    void ignoresIncompleteOrExternalCommentContinuations() {
+        URI uri = URI.create("https://www.reddit.com/r/test/comments/123/title/");
+        assertThat(parser.parseTopLevelComments("<p>No more comments</p>", uri)).isEmpty();
+        assertThat(parser.parseTopLevelComments("""
+                <faceplate-partial id='top-level-more-comments-partial' method='post'
+                    src='/svc/shreddit/more-comments/test/t3_123'></faceplate-partial>
+                """, uri)).isEmpty();
+        assertThat(parser.parseNextComments("""
+                <faceplate-partial class='more-comments-partial' method='post'
+                    src='https://example.com/svc/shreddit/more-comments/test/t3_123'>
+                  <input name='cursor' value='abc'>
+                </faceplate-partial>
+                """, uri)).isEmpty();
+    }
+
+    @Test
     void parsesProfileDescriptionAndMultipleSocialLinks() {
         String html = """
                 <p data-testid='profile-description'>Engineer &amp; trader. Find me on Instagram.</p>

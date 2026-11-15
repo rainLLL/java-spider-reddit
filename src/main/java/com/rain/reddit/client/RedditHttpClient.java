@@ -8,11 +8,14 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
@@ -24,17 +27,19 @@ public class RedditHttpClient {
     private static final int MAX_LOGGED_RESPONSE_CHARS = 2000;
     private static final int MAX_CLIENT_ERROR_RETRIES = 3;
     private static final Pattern SENSITIVE_QUERY_VALUE = Pattern.compile(
-            "(?i)([?&](?:solution|js_challenge|jsc_token|jsc_orig_r)=)[^&]*");
+            "(?i)([?&](?:solution|js_challenge|jsc_token|jsc_orig_r|csrf_token|cursor)=)[^&]*");
     private static final Pattern SENSITIVE_INPUT_VALUE = Pattern.compile(
-            "(?is)(<input\\b(?=[^>]*\\bname\\s*=\\s*[\"'](?:js_challenge|jsc_token|jsc_orig_r)[\"'])"
+            "(?is)(<input\\b(?=[^>]*\\bname\\s*=\\s*[\"'](?:js_challenge|jsc_token|jsc_orig_r|csrf_token|cursor)[\"'])"
                     + "[^>]*\\bvalue\\s*=\\s*[\"'])[^\"']*([\"'])");
     private final Sender sender;
     private final CrawlerProperties properties;
+    private final CookieManager cookieManager;
     private final AtomicBoolean firstRequest = new AtomicBoolean(true);
     private final AtomicLong requestSequence = new AtomicLong();
 
     public RedditHttpClient(CrawlerProperties properties) {
         CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        this.cookieManager = cookieManager;
         this.properties = properties;
         HttpClient client = HttpClient.newBuilder()
                 .cookieHandler(cookieManager)
@@ -45,8 +50,13 @@ public class RedditHttpClient {
     }
 
     RedditHttpClient(CrawlerProperties properties, Sender sender) {
+        this(properties, sender, new CookieManager(null, CookiePolicy.ACCEPT_ALL));
+    }
+
+    RedditHttpClient(CrawlerProperties properties, Sender sender, CookieManager cookieManager) {
         this.properties = properties;
         this.sender = sender;
+        this.cookieManager = cookieManager;
     }
 
     @FunctionalInterface
@@ -64,6 +74,36 @@ public class RedditHttpClient {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .GET()
                 .build();
+        return send(request);
+    }
+
+    public String postComments(URI uri, String cursor) throws IOException, InterruptedException {
+        verifyRedditUri(uri);
+        if (cursor == null || cursor.isBlank()) {
+            throw new IOException("Missing comments cursor for " + sanitizeUri(uri));
+        }
+        String csrfToken = cookieManager.getCookieStore().get(uri).stream()
+                .filter(cookie -> cookie.getName().equals("csrf_token"))
+                .map(HttpCookie::getValue)
+                .findFirst().orElse(null);
+        if (csrfToken == null || csrfToken.isBlank()) {
+            throw new IOException("Missing csrf_token cookie for " + sanitizeUri(uri));
+        }
+        String body = "cursor=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8)
+                + "&csrf_token=" + URLEncoder.encode(csrfToken, StandardCharsets.UTF_8);
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(properties.readTimeout())
+                .header("User-Agent", properties.userAgent())
+                .header("Accept", "text/html,application/xhtml+xml")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        return send(request);
+    }
+
+    private String send(HttpRequest request) throws IOException, InterruptedException {
+        URI uri = request.uri();
         for (int attempt = 0; attempt <= MAX_CLIENT_ERROR_RETRIES; attempt++) {
             throttle();
             long requestId = requestSequence.incrementAndGet();
@@ -106,6 +146,9 @@ public class RedditHttpClient {
         request.headers().map().forEach((name, values) -> values.forEach(value -> curl
                 .append(" --header ")
                 .append(shellQuote(name + ": " + value))));
+        if (request.method().equals("POST")) {
+            curl.append(" --data ").append(shellQuote("cursor=[REDACTED]&csrf_token=[REDACTED]"));
+        }
         return curl.toString();
     }
 

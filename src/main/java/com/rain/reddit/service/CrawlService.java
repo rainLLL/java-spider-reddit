@@ -4,6 +4,7 @@ import com.rain.reddit.client.RedditHttpClient;
 import com.rain.reddit.client.RedditClientErrorException;
 import com.rain.reddit.config.CrawlerProperties;
 import com.rain.reddit.domain.Challenge;
+import com.rain.reddit.domain.CommentContinuation;
 import com.rain.reddit.domain.ListingPage;
 import com.rain.reddit.domain.ProfileRecord;
 import com.rain.reddit.parser.RedditPageParser;
@@ -73,24 +74,32 @@ public class CrawlService {
             currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGet(currentUri);
         }
 
-        log.info("Starting comments pages: {} URLs to visit", commentUrls.size());
+        Map<String, URI> pendingProfiles = new LinkedHashMap<>();
+        collectPendingProfiles(pendingProfiles, profileUrls);
+
+        log.info("Starting comments pages: {} URLs discovered (stops after {} user profiles)",
+                commentUrls.size(), properties.maxProfileRequests());
         for (URI commentUri : commentUrls) {
+            if (pendingProfiles.size() >= properties.maxProfileRequests()) {
+                break;
+            }
             String html = safeGet(addExternalReferrer(commentUri));
             if (html != null) {
-                profileUrls.addAll(parser.parseCommentProfiles(html, commentUri));
-            }
-        }
-
-        Map<String, URI> pendingProfiles = new LinkedHashMap<>();
-        for (URI profileUri : profileUrls) {
-            String userId = parser.userIdFromUri(profileUri).orElse(null);
-            if (userId != null && !cache.contains(userId)) {
-                pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
-                if (pendingProfiles.size() == properties.maxProfileRequests()) {
-                    break;
+                collectPendingProfiles(pendingProfiles, parser.parseCommentProfiles(html, commentUri));
+                Set<CommentContinuation> seenContinuations = new LinkedHashSet<>();
+                CommentContinuation continuation = parser.parseTopLevelComments(html, commentUri).orElse(null);
+                while (continuation != null && pendingProfiles.size() < properties.maxProfileRequests()
+                        && seenContinuations.add(continuation)) {
+                    String moreHtml = safePost(continuation);
+                    if (moreHtml == null) {
+                        break;
+                    }
+                    collectPendingProfiles(pendingProfiles, parser.parseCommentProfiles(moreHtml, continuation.uri()));
+                    continuation = parser.parseNextComments(moreHtml, continuation.uri()).orElse(null);
                 }
             }
         }
+
         log.info("Starting user profiles: {} URLs to visit (limit {})",
                 pendingProfiles.size(), properties.maxProfileRequests());
 
@@ -132,6 +141,18 @@ public class CrawlService {
         exportAndMarkVisited(profiles);
     }
 
+    private void collectPendingProfiles(Map<String, URI> pendingProfiles, Set<URI> profileUrls) {
+        for (URI profileUri : profileUrls) {
+            String userId = parser.userIdFromUri(profileUri).orElse(null);
+            if (userId != null && !cache.contains(userId)) {
+                pendingProfiles.putIfAbsent(userId.toLowerCase(Locale.ROOT), profileUri);
+                if (pendingProfiles.size() >= properties.maxProfileRequests()) {
+                    break;
+                }
+            }
+        }
+    }
+
     private void exportAndMarkVisited(List<ProfileRecord> profiles) throws IOException {
         Path file = csvExportService.export(profiles);
         log.info("Finished: {} new profiles written to {}", profiles.size(), file);
@@ -147,6 +168,17 @@ public class CrawlService {
             throw exception;
         } catch (IOException | RuntimeException exception) {
             log.warn("Skipping {}: {}", uri, exception.getMessage());
+            return null;
+        }
+    }
+
+    private String safePost(CommentContinuation continuation) throws InterruptedException, RedditClientErrorException {
+        try {
+            return httpClient.postComments(continuation.uri(), continuation.cursor());
+        } catch (RedditClientErrorException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
+            log.warn("Skipping {}: {}", continuation.uri(), exception.getMessage());
             return null;
         }
     }

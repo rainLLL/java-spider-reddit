@@ -3,6 +3,9 @@ package com.rain.reddit.client;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpHeaders;
@@ -11,6 +14,10 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.time.Duration;
 import java.nio.file.Path;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
 
 import com.rain.reddit.config.CrawlerProperties;
 
@@ -80,6 +87,42 @@ class RedditHttpClientTest {
                 .isInstanceOf(RedditClientErrorException.class)
                 .hasMessageContaining("HTTP 403");
         assertThat(calls.get()).isEqualTo(4);
+    }
+
+    @Test
+    void postsEncodedCursorAndCookieCsrfWithoutLoggingTheirValues() throws Exception {
+        URI uri = URI.create("https://www.reddit.com/svc/shreddit/more-comments/test/t3_123?top-level=1");
+        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        cookies.getCookieStore().add(uri, new HttpCookie("csrf_token", "csrf+secret"));
+        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+                Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
+        var requests = new java.util.ArrayList<HttpRequest>();
+        RedditHttpClient client = new RedditHttpClient(properties, (request, handler) -> {
+            requests.add(request);
+            return response(uri, 200);
+        }, cookies);
+
+        client.postComments(uri, "cursor/value+=");
+
+        HttpRequest request = requests.get(0);
+        assertThat(request.method()).isEqualTo("POST");
+        assertThat(request.headers().firstValue("Content-Type")).contains("application/x-www-form-urlencoded");
+        assertThat(body(request)).isEqualTo("cursor=cursor%2Fvalue%2B%3D&csrf_token=csrf%2Bsecret");
+        assertThat(RedditHttpClient.buildCurl(request))
+                .contains("cursor=[REDACTED]&csrf_token=[REDACTED]")
+                .doesNotContain("cursor/value", "csrf+secret");
+    }
+
+    private String body(HttpRequest request) throws Exception {
+        CompletableFuture<String> result = new CompletableFuture<>();
+        request.bodyPublisher().orElseThrow().subscribe(new Flow.Subscriber<>() {
+            private final StringBuilder value = new StringBuilder();
+            public void onSubscribe(Flow.Subscription subscription) { subscription.request(Long.MAX_VALUE); }
+            public void onNext(ByteBuffer item) { value.append(StandardCharsets.UTF_8.decode(item)); }
+            public void onError(Throwable throwable) { result.completeExceptionally(throwable); }
+            public void onComplete() { result.complete(value.toString()); }
+        });
+        return result.get();
     }
 
     private HttpResponse<String> response(URI uri, int status) {

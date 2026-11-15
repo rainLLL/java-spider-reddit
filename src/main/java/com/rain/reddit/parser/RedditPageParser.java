@@ -1,11 +1,15 @@
 package com.rain.reddit.parser;
 
 import com.rain.reddit.domain.Challenge;
+import com.rain.reddit.domain.CommentContinuation;
 import com.rain.reddit.domain.ListingPage;
 import com.rain.reddit.domain.ProfileRecord;
+import com.rain.reddit.service.CrawlService;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -23,6 +27,7 @@ import java.util.stream.Collectors;
 
 @Component
 public class RedditPageParser {
+    private static final Logger log = LoggerFactory.getLogger(RedditPageParser.class);
 
     private static final URI BASE_URI = URI.create("https://www.reddit.com");
     private static final Pattern CHALLENGE_VALUE = Pattern.compile("(?:async\\s*)?e\\s*=>\\s*e\\s*\\+\\s*e\\s*\\)\\s*\\(\\s*[\\\"']([^\\\"']+)[\\\"']");
@@ -65,7 +70,9 @@ public class RedditPageParser {
         for (Element article : document.select("article[id]")) {
             for (Element post : article.select("shreddit-post[permalink][comment-count]")) {
                 try {
-                    if (Long.parseLong(post.attr("comment-count")) > 0) {
+                    long commentCount = Long.parseLong(post.attr("comment-count"));
+                    log.info("comment-count:{}",commentCount);
+                    if (commentCount > 0) {
                         toRedditUri(post.absUrl("permalink"))
                                 .filter(uri -> uri.getPath().matches("(?i)^/r/[^/]+/comments/[^/]+(?:/.*)?$"))
                                 .ifPresent(comments::add);
@@ -86,6 +93,29 @@ public class RedditPageParser {
 
     public Set<URI> parseCommentProfiles(String html, URI pageUri) {
         return extractProfileUrls(Jsoup.parse(html, pageUri.toString()));
+    }
+
+    public Optional<CommentContinuation> parseTopLevelComments(String html, URI pageUri) {
+        return parseCommentContinuation(html, pageUri, "faceplate-partial#top-level-more-comments-partial[method=post][src]");
+    }
+
+    public Optional<CommentContinuation> parseNextComments(String html, URI pageUri) {
+        return parseCommentContinuation(html, pageUri, "faceplate-partial.more-comments-partial[method=post][src]");
+    }
+
+    private Optional<CommentContinuation> parseCommentContinuation(String html, URI pageUri, String selector) {
+        Document document = Jsoup.parse(html, pageUri.toString());
+        Element partial = document.selectFirst(selector);
+        if (partial == null) {
+            return Optional.empty();
+        }
+        Element input = partial.selectFirst("input[name=cursor]");
+        if (input == null || input.attr("value").isBlank()) {
+            return Optional.empty();
+        }
+        return toRedditUri(partial.absUrl("src"))
+                .filter(uri -> uri.getPath().matches("(?i)^/svc/shreddit/more-comments/[^/]+/t3_[^/]+/?$"))
+                .map(uri -> new CommentContinuation(uri, input.attr("value")));
     }
 
     public ProfileRecord parseProfile(String html, URI profileUri) {
