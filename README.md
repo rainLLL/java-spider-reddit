@@ -4,7 +4,7 @@
 
 ## 交付给 macOS 用户
 
-在 `dist/` 中选择与 Mac 芯片对应的 ZIP：Apple Silicon 使用 `java-spider-reddit-1.0.0-macos-arm64.zip`，Intel 使用 `java-spider-reddit-1.0.0-macos-x64.zip`。解压后保留整个文件夹，其中包括 `run.sh`、`target/java-spider-reddit-1.0.0.jar`、`runtime/`、`config/application.properties` 和使用说明。运行包内置 Java 17，用户不需要安装 JDK 或 Maven。
+在 `dist/` 中选择与 Mac 芯片对应的 ZIP：Apple Silicon 使用 `java-spider-reddit-1.0.0-macos-arm64.zip`，Intel 使用 `java-spider-reddit-1.0.0-macos-x64.zip`。解压后保留整个文件夹，其中包括 `run.sh`、`target/java-spider-reddit-1.0.0.jar`、`runtime/`、`config/application.properties`、中文使用说明和 [英文使用说明](USER_GUIDE_EN.txt)。运行包内置 Java 17，用户不需要安装 JDK 或 Maven。
 
 在终端进入解压后的目录，编辑 `config/application.properties` 中冒号后的默认值，再运行：
 
@@ -59,4 +59,4 @@ CSV 是 UTF-8 文本。如 WPS 直接打开显示空白或乱码，可在 WPS �
 ./mvnw clean package
 ```
 
-`dist/` 是本地生成目录，不提交到 Git。重新交付时，需要将新 JAR、`run.sh`、`config/application.properties` 和对应架构的 Java 17 运行环境重新组装成 ZIP；不要把本机 `output/`、`logs/` 或 `data/visited-users.txt` 打包进去。现有 ZIP 使用 Eclipse Temurin Java 17.0.21，已做本地签名校验，但没有 Apple Developer ID 签名或公证；跨机器下载后可能出现 macOS 安全提示。x64 包通过 Rosetta 启动验证，尚未在 Intel 真机验收。
+`dist/` 是本地生成目录，不提交到 Git。重新交付时，需要将新 JAR、`run.sh`、`config/application.properties`、中英文使用说明和对应架构的 Java 17 运行环境重新组装成 ZIP；不要把本机 `output/`、`logs/` 或 `data/visited-users.txt` 打包进去。现有 ZIP 使用 Eclipse Temurin Java 17.0.21，已做本地签名校验，但没有 Apple Developer ID 签名或公证；跨机器下载后可能出现 macOS 安全提示。x64 包通过 Rosetta 启动验证，尚未在 Intel 真机验收。

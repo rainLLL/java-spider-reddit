@@ -1,0 +1,13 @@
+java-spider-reddit 1.0.0 - macOS User Guide
+
+1. Check your Mac's chip in Apple menu > About This Mac. Download the arm64 ZIP for Apple Silicon or the x64 ZIP for an Intel Mac.
+2. Unzip the package and keep its files and folders together. You do not need to install Java or Maven; the package includes Eclipse Temurin Java 17.
+3. Open config/application.properties in a text editor. Change the default values after the colons for community and max-profile-requests. The default community is wallstreetbets, and the default limit is 100 user profiles per run. The limit must be greater than zero. Saving this file does not require rebuilding the JAR.
+4. In Terminal, change to the extracted package directory and run:
+
+   ./run.sh
+
+   If Terminal reports a permission error, run chmod +x run.sh and then try ./run.sh again.
+5. Find the CSV result in output/, the log for this run in logs/, and the visited-user cache in data/visited-users.txt. Users whose descriptions and social links are both empty are omitted from the CSV.
+
+Keep the entire extracted folder together when moving it to another location. Do not move run.sh or the JAR by itself.
