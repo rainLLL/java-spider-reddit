@@ -3,6 +3,7 @@ package com.rain.reddit.client;
 import com.rain.reddit.config.CrawlerProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -37,6 +38,7 @@ public class RedditHttpClient {
     private final AtomicBoolean firstRequest = new AtomicBoolean(true);
     private final AtomicLong requestSequence = new AtomicLong();
 
+    @Autowired
     public RedditHttpClient(CrawlerProperties properties) {
         CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         this.cookieManager = cookieManager;

@@ -20,11 +20,25 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 
 import com.rain.reddit.config.CrawlerProperties;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RedditHttpClientTest {
+
+    @Test
+    void springCreatesClientUsingProductionConstructor() {
+        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+                Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(CrawlerProperties.class, () -> properties);
+            context.register(RedditHttpClient.class);
+            context.refresh();
+
+            assertThat(context.getBean(RedditHttpClient.class)).isNotNull();
+        }
+    }
 
     @Test
     void buildsReplayableCurlAndRedactsChallengeQueryValues() {
