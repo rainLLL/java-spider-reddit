@@ -8,7 +8,6 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "reddit.crawler")
 public record CrawlerProperties(
         String community,
-        int maxListingPages,
         int maxProfileRequests,
         Duration requestDelay,
         Duration connectTimeout,
@@ -20,9 +19,6 @@ public record CrawlerProperties(
     public CrawlerProperties {
         if (community == null || !community.matches("[A-Za-z0-9_]+")) {
             throw new IllegalArgumentException("reddit.crawler.community must be a subreddit name");
-        }
-        if (maxListingPages < 1) {
-            throw new IllegalArgumentException("reddit.crawler.max-listing-pages must be at least 1");
         }
         if (maxProfileRequests < 1) {
             throw new IllegalArgumentException("reddit.crawler.max-profile-requests must be at least 1");

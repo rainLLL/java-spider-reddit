@@ -23,7 +23,7 @@ class CrawlServiceTest {
 
     @Test
     void handlesPostsAndTheirCommentsInOrderBeforeFetchingAnotherListing() throws Exception {
-        CrawlerProperties properties = properties(4, 2);
+        CrawlerProperties properties = properties(4);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/new/")) return post("Alice", "1", 1)
@@ -48,7 +48,7 @@ class CrawlServiceTest {
 
     @Test
     void stopsCommentPaginationAndLaterPostsAtConfiguredCount() throws Exception {
-        CrawlerProperties properties = properties(3, 1);
+        CrawlerProperties properties = properties(3);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/new/")) return post("Alice", "1", 1) + post("Later", "2", 1);
@@ -78,7 +78,7 @@ class CrawlServiceTest {
 
     @Test
     void followsNewListingPaginationOnlyWhenMoreProfilesAreNeeded() throws Exception {
-        CrawlerProperties properties = properties(2, 2);
+        CrawlerProperties properties = properties(2);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/new/")) return post("Alice", "1", 0)
@@ -97,8 +97,32 @@ class CrawlServiceTest {
     }
 
     @Test
+    void continuesThroughMultipleListingPagesUntilConfiguredProfileCount() throws Exception {
+        CrawlerProperties properties = properties(3);
+        FakeClient client = new FakeClient(properties);
+        client.responder = uri -> {
+            if (uri.getPath().equals("/r/test/new/")) return post("Alice", "1", 0)
+                    + next("/svc/shreddit/community-more-posts/new/?after=second");
+            if (uri.getPath().equals("/svc/shreddit/community-more-posts/new/")) {
+                if ("after=second".equals(uri.getQuery())) return post("Bob", "2", 0)
+                        + next("/svc/shreddit/community-more-posts/new/?after=third");
+                return post("Carol", "3", 0)
+                        + next("/svc/shreddit/community-more-posts/new/?after=fourth");
+            }
+            return profileOrEmpty(uri);
+        };
+
+        service(properties, client, new VisitedUserCache(properties)).crawl();
+
+        assertThat(client.requestedUris.stream()
+                .filter(uri -> uri.getPath().equals("/svc/shreddit/community-more-posts/new/"))
+                .map(URI::getQuery)).containsExactly("after=second", "after=third");
+        assertThat(client.profileCalls).isEqualTo(3);
+    }
+
+    @Test
     void exportsCollectedProfilesBeforeFatalClientError() throws Exception {
-        CrawlerProperties properties = properties(2, 1);
+        CrawlerProperties properties = properties(2);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/new/")) return post("Alice", "1", 0) + post("Bob", "2", 0);
@@ -117,7 +141,7 @@ class CrawlServiceTest {
 
     @Test
     void usesConfiguredCountAboveOneHundred() throws Exception {
-        CrawlerProperties properties = properties(101, 1);
+        CrawlerProperties properties = properties(101);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/new/")) {
@@ -135,7 +159,7 @@ class CrawlServiceTest {
 
     @Test
     void solvesInitialChallengeBeforeRequestingTimeSortedListing() throws Exception {
-        CrawlerProperties properties = properties(1, 1);
+        CrawlerProperties properties = properties(1);
         FakeClient client = new FakeClient(properties);
         client.responder = uri -> {
             if (uri.getPath().equals("/r/test/") && uri.getQuery() == null) return """
@@ -157,7 +181,7 @@ class CrawlServiceTest {
 
     @Test
     void stillReadsCommentsWhenPostAuthorIsCached() throws Exception {
-        CrawlerProperties properties = properties(1, 1);
+        CrawlerProperties properties = properties(1);
         FakeClient client = new FakeClient(properties);
         VisitedUserCache cache = new VisitedUserCache(properties);
         cache.markVisited("Alice");
@@ -189,8 +213,8 @@ class CrawlServiceTest {
         return "<faceplate-partial slot='load-after' src='" + src + "'></faceplate-partial>";
     }
 
-    private CrawlerProperties properties(int maxProfileRequests, int maxListingPages) {
-        return new CrawlerProperties("test", maxListingPages, maxProfileRequests, Duration.ZERO,
+    private CrawlerProperties properties(int maxProfileRequests) {
+        return new CrawlerProperties("test", maxProfileRequests, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent",
                 tempDirectory.resolve("output"), tempDirectory.resolve("visited-users.txt"));
     }

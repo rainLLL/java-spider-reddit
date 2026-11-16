@@ -62,7 +62,7 @@ public class CrawlService {
                 + "/new/?screen_view_count=1&ext-referrer=DIRECT");
         String currentHtml = httpClient.getListing(currentUri);
 
-        for (int page = 1; page <= properties.maxListingPages() && currentHtml != null; page++) {
+        for (int page = 1; currentHtml != null; page++) {
             if (!seenListingUrls.add(currentUri)) {
                 log.warn("Pagination loop detected at {}", currentUri);
                 break;
@@ -102,7 +102,7 @@ public class CrawlService {
                 break;
             }
             currentUri = listing.nextPageUrl();
-            currentHtml = currentUri == null || page == properties.maxListingPages() ? null : safeGetListing(currentUri);
+            currentHtml = currentUri == null ? null : safeGetListing(currentUri);
         }
 
         log.info("Starting user profiles: {} URLs to visit (limit {})",

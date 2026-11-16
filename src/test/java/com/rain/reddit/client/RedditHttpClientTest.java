@@ -29,7 +29,7 @@ class RedditHttpClientTest {
 
     @Test
     void springCreatesClientUsingProductionConstructor() {
-        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+        CrawlerProperties properties = new CrawlerProperties("test", 100, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(CrawlerProperties.class, () -> properties);
@@ -91,7 +91,7 @@ class RedditHttpClientTest {
         URI uri = URI.create("https://www.reddit.com/r/test/");
         AtomicInteger calls = new AtomicInteger();
         HttpResponse<String> forbidden = response(uri, 403);
-        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+        CrawlerProperties properties = new CrawlerProperties("test", 100, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
 
         assertThatThrownBy(() -> new RedditHttpClient(properties, (request, handler) -> {
@@ -106,7 +106,7 @@ class RedditHttpClientTest {
     @Test
     void addsFormContentTypeOnlyForTimeSortedListing() throws Exception {
         URI uri = URI.create("https://www.reddit.com/r/test/new/?screen_view_count=1&ext-referrer=DIRECT");
-        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+        CrawlerProperties properties = new CrawlerProperties("test", 100, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
         var requests = new java.util.ArrayList<HttpRequest>();
         RedditHttpClient client = new RedditHttpClient(properties, (request, handler) -> {
@@ -127,7 +127,7 @@ class RedditHttpClientTest {
         URI uri = URI.create("https://www.reddit.com/svc/shreddit/more-comments/test/t3_123?top-level=1");
         CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         cookies.getCookieStore().add(uri, new HttpCookie("csrf_token", "csrf+secret"));
-        CrawlerProperties properties = new CrawlerProperties("test", 1, 100, Duration.ZERO,
+        CrawlerProperties properties = new CrawlerProperties("test", 100, Duration.ZERO,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), "test-agent", Path.of("output"), Path.of("cache"));
         var requests = new java.util.ArrayList<HttpRequest>();
         RedditHttpClient client = new RedditHttpClient(properties, (request, handler) -> {

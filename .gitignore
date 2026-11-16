@@ -1,6 +1,7 @@
 .idea/
 *.iml
 target/
+dist/
 output/
 logs/
 data/visited-users.txt
